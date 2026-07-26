@@ -1,49 +1,54 @@
 'use client';
 
 import { useState } from "react";
+import toast from 'react-hot-toast';
 import Header from '../components/Header.jsx'
 import ProfileSection from '@/components/ProfileSection.jsx';
 import MaterialsSection from '@/components/Materials.jsx';
 import CraftsGrid from '@/components/CraftsGrid.jsx';
 
-export default function Home() { // here is an innocent comment
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5001";
+
+export default function Home() {
   const [skills, setSkills] = useState("Painting, Origami");
   const [themes, setThemes] = useState("Eco-friendly, Cutesy");
   const [wantToTry, setWantToTry] = useState("Clay-modelling");
-  const [materials, setMaterials] = useState(["clay", "plastic bottle", "waste paper",]);
+  const [materials, setMaterials] = useState(["clay", "plastic bottle", "waste paper"]);
   const [isLoading, setIsLoading] = useState(false);
   const [generatedCrafts, setGeneratedCrafts] = useState([]);
 
-  // to call backend API
   const generateCraftIdeas = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch("http://localhost:5001/generate/", {
+      const response = await fetch(`${API_URL}/generate/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skills, themes, wantToTry, materials }),
       });
 
       const data = await response.json();
-      if (data.craftsData) {
-        console.log("Found the crafts.")
 
+      if (data.error) {
+        toast.error(data.error);
+        return;
+      }
+
+      if (data.craftsData) {
         const processed = Object.entries(data.craftsData).map(([id, craft]) => ({
           id: Number(id),
           title: craft.title,
-          image: craft.image,
-        }))
+          emoji: craft.emoji,
+          gradient: craft.gradient,
+        }));
         setGeneratedCrafts(processed);
         localStorage.setItem("generatedCrafts", JSON.stringify(processed));
+        toast.success(`Generated ${processed.length} craft ideas!`);
+      } else {
+        toast.error("No ideas returned — try different materials!");
       }
-      else {
-        console.error("No crafts data found", data);
-      }
-    }
-    catch (e) {
-      console.error("Error while generating", e);
-    }
-    finally {
+    } catch (e) {
+      toast.error("Could not reach the AI — is the backend running?");
+    } finally {
       setIsLoading(false);
     }
   };
@@ -81,7 +86,6 @@ export default function Home() { // here is an innocent comment
         </div>
       </div>
       <div className="max-w-7xl mx-auto pb-15 px-4"><CraftsGrid crafts={generatedCrafts} /></div>
-
     </main>
   );
 }

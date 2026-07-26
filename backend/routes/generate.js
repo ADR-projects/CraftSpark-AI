@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 console.log("AI handler entrypoint!")
-const { GoogleGenAI } = require("@google/genai");
+const Groq = require("groq-sdk");
 const dotenv = require("dotenv");
 const axios = require("axios");
 
@@ -9,8 +9,8 @@ dotenv.config(); // load env var
 
 console.log("before init ai")
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.API_KEY,
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
 });
 
 console.log("Get the ai up and runnin'!")
@@ -28,12 +28,17 @@ router.post("/", async (req, res) => {
     console.log("Raw body:", req.body);
 
     const prompt = `
-      You are CraftSpark-AI.
-      Generate 4-8 creative craft/Art/DIY ideas as a CLEAN JSON object in this exact format:
+      You are CraftSpark-AI, a helpful DIY craft assistant.
+
+      FIRST, evaluate the provided skills and materials. If they contain harmful, dangerous, impossible, or highly irrelevant items (e.g., "Uranium", "Wasting Time", "Plutonium", "Sleeping"), you MUST return this exact JSON error object and nothing else:
+      { "error": "Invalid or inappropriate materials/skills provided. Please enter realistic craft materials and skills." }
+
+      Otherwise, generate 4-8 creative craft/Art/DIY ideas as a CLEAN JSON object in this exact format:
       {
         "1": {
           "title": "...",
-          "image": "...",
+          "emoji": "...",
+          "gradient": ["#...", "#..."]
         },
         "2": {...},
         "3": {...}
@@ -42,17 +47,20 @@ router.post("/", async (req, res) => {
       Use themes like: ${themes}.
       Maker's Skills: ${skills}.
       Materials available to the Maker: ${materials.join(", ")}.
+      
       Craft title should be, maximum, around 5 words long.
-      Let the image field contain a keyword related to the craft, eg. 'yarn' or 'electronics' or 'origami'.
-      Do NOT send in markdown format, or include commentary.
+      The "emoji" field MUST be a SINGLE highly relevant emoji (e.g., 🧶, 🎨, 🪵).
+      The "gradient" field MUST be an array of EXACTLY TWO hex color codes representing a vibrant CSS gradient (e.g., ["#FF9A9E", "#FECFEF"]).
+      
+      Do NOT send in markdown format, or include commentary. Output ONLY valid JSON.
     `;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+    const response = await groq.chat.completions.create({
+      messages: [{ role: "user", content: prompt }],
+      model: "llama-3.3-70b-versatile",
     });
-    console.log(response.text);
-    const text = response.text;
+    console.log(response.choices[0].message.content);
+    const text = response.choices[0].message.content;
 
     // parse the AI output as JSON
     let cleanText = text
@@ -67,38 +75,11 @@ router.post("/", async (req, res) => {
       return res.status(500).json({ error: "Failed to parse AI output" });
     }
 
-    const fallbackImageURL = "https://images.pexels.com/photos/4219219/pexels-photo-4219219.jpeg";
-
-    async function getPexelsImage(query) {
-      try {
-        const res = await axios.get(process.env.PEXELS_URL, {
-          params: { query, per_page: 1 },
-          headers: {
-            Authorization: process.env.PEXELS_API_KEY
-          }
-        });
-
-        if (res.data.photos && res.data.photos.length > 0) {
-          return res.data.photos[0].src.medium;
-        }
-
-        return fallbackImageURL; // fallback
-      } catch (err) {
-        console.error("Pexels fetch error:", err);
-        return "https://via.placeholder.com/600x400?text=Error";
-      }
+    if (parsed.error) {
+      return res.status(400).json({ error: parsed.error });
     }
 
-
-    for (const key of Object.keys(parsed)) {
-      const craft = parsed[key];
-
-      const keyword = craft.image || "DIY craft";
-      // const keyword = "art"; // test
-      const imageUrl = await getPexelsImage(keyword);
-
-      craft.image = imageUrl;
-    }
+    // No mapping needed, emoji and gradient are directly in the JSON from Groq
 
 
     // IMPORTANT:  HERE IS WHERE YOU PASS THE PARSED JSON 
@@ -116,36 +97,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-router.post("/details", async (req, res) => {
-  const { title } = req.body;
 
-  const prompt = `
-    You are CraftSpark-AI. For the craft of title: ${title}, you need to generate simple details, like this:
-    Return CLEAN EXACT JSON:
-    {
-      "description": "short description",
-      "materials": ["item 1", "item 2", "item 3"],
-      "steps": ["step 1", "step 2", "step 3"]
-    }
-
-    RULES:
-    - Keep everything short and concise.
-    - "materials" MUST be a JSON array of strings like: ["paper", "glue", "scissors"]
-    -"steps" MUST be a JSON array of max 5 strings like: ["Cut paper", "Glue pieces", "Let dry"]
-    - No markdown, no code blocks, no prose
-    - No trailing commas
-    `
-    ;
-
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-  });
-  console.log(response.text);
-  const text = response.text;
-  const json = JSON.parse(text);
-  res.json(json);
-});
 
 
 
